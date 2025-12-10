@@ -1,0 +1,6 @@
+# 不上传数据集
+data/
+
+# 不上传 RNA-FM 模型或依赖
+RNA-FM/
+RNA-FM.tar.gz

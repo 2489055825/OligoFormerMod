@@ -1,0 +1,1 @@
+pos	sense	siRNA	efficacy	func_filter	filter
