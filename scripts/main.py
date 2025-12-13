@@ -38,6 +38,12 @@ def main():
     parser.add_argument('--lm', type=int, default=19, help='flanking length')
     parser.add_argument('--lm1', type=int, default=19, help='left length')
     parser.add_argument('--lm2', type=int, default=19, help='right length')
+    parser.add_argument('--contact_map_path', type=str, default=None, help='path to TEC/TEC-miTarget contact_map h5 file')
+    parser.add_argument('--contact_key_col', type=str, default=None, help='column name for contact_map key (default uses siRNA+mRNA)')
+    parser.add_argument('--contact_p_column', type=str, default=None, help='column name for TEC p-value (e.g., predictions)')
+    parser.add_argument('--contact_dim', type=int, default=64, help='dimension of aggregated contact-map vector')
+    parser.add_argument('--contact_heads', type=int, default=4, help='attention heads used in contact-map aggregator')
+    parser.add_argument('--use_contact_map', action='store_true', help='enable contact-map branch even if path not provided')
 
     # option parameter
     parser.add_argument('-t','--test',action='store_true', help='test mode')
@@ -82,4 +88,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

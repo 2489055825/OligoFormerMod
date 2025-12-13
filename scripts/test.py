@@ -52,7 +52,9 @@ def val(model, criterion, dataloader):
 		mRNA_FM = data[3].to(device)
 		label = data[4].to(device)
 		td = data[6].to(device)
-		pred,_,_ = model(siRNA,mRNA,siRNA_FM,mRNA_FM,td)
+		contact_map = data[7].to(device) if len(data) > 7 else None
+		contact_p = data[8].to(device) if len(data) > 8 else None
+		pred,_,_ = model(siRNA,mRNA,siRNA_FM,mRNA_FM,td, contact_map, contact_p)
 		_efficacy += list(pred[:,1].detach().cpu().numpy())
 		_label += list(label.float().detach().cpu().numpy())
 		loss = criterion(pred[:,1],label.float()) 
@@ -115,10 +117,12 @@ def test(Args):
 			'shuffle': False,
 			'num_workers': 0,
 			'drop_last': False}
-	train_ds = DataLoader(data_process_loader(train_df.index.values, train_df.label.values,train_df.y.values, train_df, Args.datasets[0],Args.path), **params)
-	valid_ds = DataLoader(data_process_loader(valid_df.index.values, valid_df.label.values,valid_df.y.values, valid_df, Args.datasets[1],Args.path),**params)
-	test_ds = DataLoader(data_process_loader(test_df.index.values, test_df.label.values,test_df.y.values, test_df, Args.datasets[1],Args.path), **params)
-	OFmodel = Oligo(vocab_size = Args.vocab_size, embedding_dim = Args.embedding_dim, lstm_dim = Args.lstm_dim,  n_head = Args.n_head, n_layers = Args.n_layers, lm1 = Args.lm1, lm2 = Args.lm2).to(device)
+	contact_kwargs = dict(contact_map_path=Args.contact_map_path, contact_key_col=Args.contact_key_col, contact_p_column=Args.contact_p_column)
+	train_ds = DataLoader(data_process_loader(train_df.index.values, train_df.label.values,train_df.y.values, train_df, Args.datasets[0],Args.path, **contact_kwargs), **params)
+	valid_ds = DataLoader(data_process_loader(valid_df.index.values, valid_df.label.values,valid_df.y.values, valid_df, Args.datasets[1],Args.path, **contact_kwargs),**params)
+	test_ds = DataLoader(data_process_loader(test_df.index.values, test_df.label.values,test_df.y.values, test_df, Args.datasets[1],Args.path, **contact_kwargs), **params)
+	use_contact = Args.use_contact_map or (Args.contact_map_path is not None)
+	OFmodel = Oligo(vocab_size = Args.vocab_size, embedding_dim = Args.embedding_dim, lstm_dim = Args.lstm_dim,  n_head = Args.n_head, n_layers = Args.n_layers, lm1 = Args.lm1, lm2 = Args.lm2, contact_dim=Args.contact_dim, contact_heads=Args.contact_heads, use_contact_map=use_contact).to(device)
 	OFmodel.load_state_dict(torch.load(Args.best_model,map_location=device))
 	criterion = nn.MSELoss()
 	params = dict(

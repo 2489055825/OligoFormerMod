@@ -165,7 +165,8 @@ def infer(Args):
 	random.seed(Args.seed)
 	os.environ['PYTHONHASHSEED']=str(Args.seed)
 	np.random.seed(Args.seed)
-	best_model = Oligo(vocab_size = Args.vocab_size, embedding_dim = Args.embedding_dim, lstm_dim = Args.lstm_dim,  n_head = Args.n_head, n_layers = Args.n_layers, lm1 = Args.lm1, lm2 = Args.lm2).to(device)
+	use_contact = Args.use_contact_map or (Args.contact_map_path is not None)
+	best_model = Oligo(vocab_size = Args.vocab_size, embedding_dim = Args.embedding_dim, lstm_dim = Args.lstm_dim,  n_head = Args.n_head, n_layers = Args.n_layers, lm1 = Args.lm1, lm2 = Args.lm2, contact_dim=Args.contact_dim, contact_heads=Args.contact_heads, use_contact_map=use_contact).to(device)
 	best_model.load_state_dict(torch.load("model/best_model.pth",map_location=device))
 	print('-----------------Start inferring!-----------------')
 	a = datetime.now() #获得当前时间
@@ -239,7 +240,7 @@ def infer(Args):
 				'shuffle': False,
 				'num_workers': 0,
 				'drop_last': False}
-			infer_ds = DataLoader(data_process_loader_infer(_infer_df.index.values, _infer_df, _name),**params)
+			infer_ds = DataLoader(data_process_loader_infer(_infer_df.index.values, _infer_df, _name, contact_map_path=Args.contact_map_path, contact_key_col=Args.contact_key_col, contact_p_column=Args.contact_p_column),**params)
 			Y_PRED = []
 			for i, data in enumerate(infer_ds):
 				siRNA = data[0].to(device)
@@ -247,7 +248,9 @@ def infer(Args):
 				siRNA_FM = data[2].to(device)
 				mRNA_FM = data[3].to(device)
 				td = data[4].to(device)
-				pred,_,_ = best_model(siRNA,mRNA,siRNA_FM,mRNA_FM,td)
+				contact_map = data[5].to(device) if len(data) > 5 else None
+				contact_p = data[6].to(device) if len(data) > 6 else None
+				pred,_,_ = best_model(siRNA,mRNA,siRNA_FM,mRNA_FM,td, contact_map, contact_p)
 				Y_PRED.append(pred[:,1].item())
 			Y_PRED = [i*1.341 for i in Y_PRED]
 			Y_PRED = pd.DataFrame(Y_PRED)
@@ -372,7 +375,7 @@ def infer(Args):
 			'shuffle': False,
 			'num_workers': 0,
 			'drop_last': False}
-		infer_ds = DataLoader(data_process_loader_infer(_infer_df.index.values, _infer_df, _name),**params)
+		infer_ds = DataLoader(data_process_loader_infer(_infer_df.index.values, _infer_df, _name, contact_map_path=Args.contact_map_path, contact_key_col=Args.contact_key_col, contact_p_column=Args.contact_p_column),**params)
 		Y_PRED = []
 		for i, data in enumerate(infer_ds):
 			siRNA = data[0].to(device)
@@ -380,7 +383,9 @@ def infer(Args):
 			siRNA_FM = data[2].to(device)
 			mRNA_FM = data[3].to(device)
 			td = data[4].to(device)
-			pred,_,_ = best_model(siRNA,mRNA,siRNA_FM,mRNA_FM,td)
+			contact_map = data[5].to(device) if len(data) > 5 else None
+			contact_p = data[6].to(device) if len(data) > 6 else None
+			pred,_,_ = best_model(siRNA,mRNA,siRNA_FM,mRNA_FM,td, contact_map, contact_p)
 			Y_PRED.append(pred[:,1].item())
 		Y_PRED = [i*1.341 for i in Y_PRED]
 		Y_PRED = pd.DataFrame(Y_PRED)
@@ -474,8 +479,5 @@ def infer(Args):
 	b = datetime.now()
 	durn = (b-a).seconds
 	print(durn, 'seconds', durn / 60, 'minutes')
-
-
-
 
 

@@ -233,15 +233,62 @@ class mRNA_Encoder(nn.Module):
         x, attention = self.encoder(x,src_mask = None) # 16,53,64
         return x, attention
 
+
+class ContactMapAggregator(nn.Module):
+    """Aggregate contact map into a fixed-length vector with attention pooling."""
+    def __init__(self, in_channels: int = 1, hidden_dim: int = 64, heads: int = 4, out_dim: int = 64):
+        super().__init__()
+        self.encoder = nn.Sequential(
+            nn.Conv2d(in_channels, hidden_dim, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(hidden_dim, hidden_dim, kernel_size=3, padding=1),
+            nn.ReLU(),
+        )
+        self.query = nn.Parameter(torch.randn(1, 1, hidden_dim))
+        self.attn = nn.MultiheadAttention(hidden_dim, heads, batch_first=True)
+        self.proj = nn.Sequential(
+            nn.Linear(hidden_dim, out_dim),
+            nn.ReLU()
+        )
+
+    def forward(self, contact_map):
+        if contact_map is None:
+            raise ValueError("contact_map must be provided when using ContactMapAggregator.")
+        # Accept (B,H,W) or (B,1,H,W) shapes
+        if contact_map.dim() == 3:
+            x = contact_map.unsqueeze(1)
+        elif contact_map.dim() == 4:
+            x = contact_map
+            if x.shape[1] not in (1, 2, 3, 4) and x.shape[-1] in (1, 2, 3, 4):
+                x = x.permute(0, 3, 1, 2)
+        else:
+            raise ValueError(f"Unsupported contact_map shape: {contact_map.shape}")
+        x = x.float()
+        feats = self.encoder(x)
+        b, c, h, w = feats.shape
+        tokens = feats.view(b, c, h * w).transpose(1, 2)  # (B, HW, C)
+        query = self.query.to(feats.device).expand(b, -1, -1)
+        pooled, attn = self.attn(query, tokens, tokens)
+        pooled = pooled.squeeze(1)
+        pooled = self.proj(pooled)
+        return pooled, attn
+
 class Oligo(nn.Module):
-    def __init__(self, vocab_size = 26, embedding_dim = 128, lstm_dim = 32,  n_head = 8, n_layers = 1, lm1 = 19, lm2 = 19): # 4928
+    def __init__(self, vocab_size = 26, embedding_dim = 128, lstm_dim = 32,  n_head = 8, n_layers = 1, lm1 = 19, lm2 = 19, contact_dim: int = 0, contact_heads: int = 4, use_contact_map: bool = False): # 4928
         super().__init__()
         self.siRNA_encoder = siRNA_Encoder(vocab_size, embedding_dim, lstm_dim, n_head, n_layers)
         self.mRNA_encoder = mRNA_Encoder(vocab_size, embedding_dim, lstm_dim, n_head, n_layers, lm1, lm2)
         self.siRNA_avgpool = nn.AvgPool2d((19, 5))
         self.mRNA_avgpool = nn.AvgPool2d((19 + lm1 + lm2, 5))
+        self.contact_dim = contact_dim
+        self.use_contact_map = use_contact_map and contact_dim > 0
+        if self.use_contact_map:
+            self.contact_aggregator = ContactMapAggregator(out_dim=contact_dim, heads=contact_heads)
+        base_input_dim = 1216 + (19 + lm1 + lm2 - 4) * 64 + 256 + 24
+        if self.use_contact_map:
+            base_input_dim += contact_dim + 1  # contact vector + p value
         self.classifier = nn.Sequential(
-            nn.Linear(1216 + (19 + lm1 + lm2 - 4) * 64 + 256 + 24,256),
+            nn.Linear(base_input_dim,256),
             nn.ReLU(),
             nn.Dropout(0.02),
             nn.Linear(256, 64),
@@ -251,7 +298,7 @@ class Oligo(nn.Module):
             nn.Softmax()
         )
         self.flatten = nn.Flatten()
-    def forward(self, siRNA, mRNA, siRNA_FM, mRNA_FM,td):
+    def forward(self, siRNA, mRNA, siRNA_FM, mRNA_FM,td, contact_map=None, contact_p=None):
         siRNA, siRNA_attention = self.siRNA_encoder(siRNA)
         mRNA, mRNA_attention = self.mRNA_encoder(mRNA)
         siRNA_FM = self.siRNA_avgpool(siRNA_FM)
@@ -263,6 +310,21 @@ class Oligo(nn.Module):
         siRNA_FM = self.flatten(siRNA_FM)
         mRNA_FM = self.flatten(mRNA_FM)
         td = self.flatten(td)
-        merge = torch.cat([siRNA,mRNA,siRNA_FM,mRNA_FM,td],dim = -1)
+        merge_list = [siRNA,mRNA,siRNA_FM,mRNA_FM,td]
+        if self.use_contact_map:
+            if contact_map is not None:
+                contact_map = contact_map.to(siRNA.device).float()
+                contact_vec, _ = self.contact_aggregator(contact_map)
+            else:
+                contact_vec = torch.zeros(siRNA.shape[0], self.contact_dim, device=siRNA.device)
+            merge_list.append(contact_vec)
+            if contact_p is None:
+                contact_p = torch.zeros(siRNA.shape[0], 1, device=siRNA.device)
+            else:
+                contact_p = contact_p.to(siRNA.device).view(siRNA.shape[0], -1).float()
+                if contact_p.shape[1] != 1:
+                    contact_p = contact_p.mean(dim=1, keepdim=True)
+            merge_list.append(contact_p)
+        merge = torch.cat(merge_list,dim = -1)
         x = self.classifier(merge)
         return x,siRNA_attention,mRNA_attention
