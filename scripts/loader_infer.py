@@ -12,7 +12,10 @@ nucleic_char = ['A', 'U', 'C', 'G', 'X']
 
 enc_protein = OneHotEncoder().fit(np.array(nucleic_char).reshape(-1, 1))
 def sequence_OneHot(x):
-    return enc_protein.transform(np.array(x).reshape(-1, 1)).toarray().T
+    # Minimal change: map any non-A/U/C/G to 'X' before encoding
+    chars = list(x) if not isinstance(x, str) else list(x)
+    mapped = [(c.upper() if c.upper() in ('A','U','C','G') else 'X') for c in chars]
+    return enc_protein.transform(np.array(mapped).reshape(-1, 1)).toarray().T
 
 
 class data_process_loader(data.Dataset):
